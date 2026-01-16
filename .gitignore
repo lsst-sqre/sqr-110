@@ -3,3 +3,6 @@ _build/
 .tox/
 venv/
 .venv/
+# Handy for mermaid preview, but should be inline in the md
+*.mmd
+
