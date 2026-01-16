@@ -1,0 +1,23 @@
+[technote]
+id = "SQR-110"
+series_id = "SQR"
+canonical_url = "https://sqr-110.lsst.io"
+github_url = "https://github.com/lsst-sqre/sqr-110"
+github_default_branch = "main"
+date_created = 2026-01-16T16:19:18Z
+organization.name = "NSF-DOE Vera C. Rubin Observatory"
+organization.ror = "https://ror.org/048g3cy84"
+license.id = "CC-BY-4.0"
+
+[technote.status]
+state = "draft"
+
+[[technote.authors]]
+name.given = "Adam J."
+name.family = "Thornton"
+internal_id = "thorntonaj"
+orcid = "https://orcid.org/0000-0001-9342-6032"
+[[technote.authors.affiliations]]
+name = "Vera C. Rubin Observatory Project Office"
+internal_id = "RubinObs"
+address = "Tucson"
