@@ -12,11 +12,11 @@ One use case for this is to provide static links to tutorial notebooks, such tha
 A second one is to provide a route which can have a TAP query ID stuck on the end, such that when a user goes there, they are presented with a notebook set up to perform that TAP query and retrieve its results.
 Other use cases are expected to present themselves as we further develop Ghostwriter.
 
-## Flow diagram
+## Internal Flow diagram
 
 ```mermaid
 ---
-title: Ghostwriter Flow
+title: Internal Ghostwriter Flow
 ---
 
 graph TB
@@ -37,7 +37,6 @@ graph TB
         direction TB
         engine@{ shape: rect, label: "Rendering Engine" }<-->repo@{ shape: lin-cyl, label: "Repository" }
       end
-
     end
     subgraph Write-file
       direction LR
@@ -72,9 +71,11 @@ graph TB
     fs_pod@{ shape: rect, label: "User Fileserver"}<-->storage@{shape: lin-cyl, label: "POSIX file storage"}
   end
   subgraph Outputs
-    doc@{ shape: doc, label: "Rendered Document" }
-    file_out@{ shape: lean-l, label: "File Path"}
-    lab_url@{shape: lean-l, label: "Lab document URL" }
+    subgraph HTTP Response
+      doc@{ shape: doc, label: "Rendered Document" }
+      file_out@{ shape: lean-l, label: "File Path"}
+      lab_url@{shape: lean-l, label: "Redirect" }
+	end
   end
   engine-->doc
   doc-->fs_coordinator
@@ -113,12 +114,12 @@ Additionally there may, in future, be other modes, which are not yet defined.
 Document rendering may differ by document type.
 Initially, Ghostwriter will only support one type, `Notebook`.
 In future it may support other types.
-The `Notebook` type is an IPython notebook, distinguished by the file suffix `.ipynb`; it is a JSON document.
+The `Notebook` type is an IPython notebook, distinguished by the file suffix `.ipynb`; it is a JSON document with the structure of a [Jupyter Notebook](https://ipython.org/ipython-doc/3/notebook/nbformat.html).
 
 #### Endpoint
 
 The endpoint from which to fetch the input document must be specified as a Ghostwriter input.
-For the `notebook` document type, templating may be delegated to [Times Square](https://sqr-062.lsst.io/).
+For the `Notebook` document type, templating may be delegated to [Times Square](https://sqr-062.lsst.io/).
 
 #### Parameters
 
@@ -146,7 +147,7 @@ The first mode of operation takes an endpoint and a set of substitution paramete
 The `render` mode creates a byte sequence that is the rendered document.
 The document type will then guide what validation, if any, to perform on
 the byte sequence.
-For instance, the `notebook` type will first be decoded into a string with the assumption that the bytes are UTF-8 encoded.
+For instance, the `Notebook` type will first be decoded into a string with the assumption that the bytes are UTF-8 encoded.
 That string should be able to be loaded as a JSON document, and that JSON document itself should have the structure of a [Jupyter Notebook](https://ipython.org/ipython-doc/3/notebook/nbformat.html).
 
 ### Mode `write-file`
@@ -215,7 +216,7 @@ At any rate, once that is determined, the path-in-storage can be translated to a
 
 #### Opening the document
 
-That URL will be returned to the caller and can be used to redirect the user to the Lab opened to the correct document.
+A redirect for that URL will be returned to the caller and can be used to direct the user to the Lab opened to the correct document.
 
 ## Implementation
 
@@ -227,18 +228,41 @@ However, it will necessarily differ in that, in addition to the routes that are 
 The first version of ghostwriter handled this by registering routes underneath `/ghostwriter/rewrite`, and mapping those routes to specific sets of actions via a set of `hooks`.
 After that, top-level routes (e.g. `/tutorials` or `/queries`) were given Gafaelfawr Ingresses to redirect those routes to Ghostwriter rewrite routes, which in turn triggered Ghostwriter hooks to substitute parameters as necessary and ultimately return a redirect to a Lab with a templated query or a tutorial opened in a notebook.
 
-Something like this is certainly required: it may be as simple as
-using path parameters plus (Gafaelfawr-determinable) user info to
-construct the input parameters for a Ghostwriter call.
+A mechanism like this is certainly required: it may be as simple as using path parameters plus (Gafaelfawr-determinable) user info to construct the input parameters for a Ghostwriter call.
 In more complex cases, it may be necessary to stand up entire (small) services on those routes which construct Ghostwriter parameters from more structured input, make a call into Ghostwriter, and relay back the redirection information thus received.
 
-This implies the necessity for a the need to associate routes (URLs) via pluggable transformer classes (these classes are what are known as `hooks` in the current implementation).
+This implies the necessity for a the need to associate routes (URLs) via pluggable transformer classes (these are functions known as `hooks` in the current implementation, and are classes called `parsers` in this proposed implementation).
 These classes must accept an HTTP Request, which may contain path or query parameters, cookies, and/or headers, any or all of which may specify relevant information, and create a Ghostwriter input from the information in that request.
-Note that one of these hook classes may make HTTP calls to one or more services in order to resolve its request data to a Ghostwriter input.
-Then Ghostwriter will perform the actions required, and return an output including the rendered document, the file path written (if any) and the URL of the running notebook (if any).
-In the general case, this URL will be used to trigger an HTTP redirect for the user's browser.
+Note that one of these parser classes may make HTTP calls to one or more services (typically, [Repertoire](https://repertoire.lsst.io)) in order to resolve its request data to a Ghostwriter input.
+Then Ghostwriter will perform the actions required, and return an output including the rendered document, the file path written (if any) and an HTTP request for the URL of the running notebook (if any).
 
-The hook classes should be chainable, to allow for composable and reusable actions; this implies that the hook for a given route be made up of an ordered list of transformation classes.
+The parser classes should be chainable, to allow for composable and reusable actions; this implies that the set of parsers for a given route be made up of an ordered list of transformation classes.
+
+#### Parser structure
+
+```mermaid
+---
+title: Parser Structure
+---
+
+classDiagram
+  Parser
+  Parser : +Path internal-route
+  Parser : +Path external-route
+  Parser: +rewrite()
+  
+  Input: +Request request
+  
+  Output: +Response response
+  
+  Parser <-- Input
+  Parser --> Output
+```
+
+The `Path` type is [`pathlib.Path`](https://docs.python.org/3/library/pathlib.html#pathlib.Path) from the Python standard library.
+The `Request` type is [`httpx.Request`](https://www.python-httpx.org/api/#request).
+The `Response` type is [`httpx.Response`](https://www.python-httpx.org/api/#response).
+  
 
 ### Input classes
 
@@ -291,65 +315,56 @@ classDiagram
   DocumentType -- Input
   Disposition -- Input
   LabOptions -- Input
-  OverwritePolicy -- Disposition
+  OverwritePolicy -- Input
 ```
+
+As above, the `Path` type is [`pathlib.Path`](https://docs.python.org/3/library/pathlib.html#pathlib.Path) from the Python standard library.
 
 If `mode` is `render`, `disposition`, `overwrite-policy`, and `lab-options` may be `None` (`null` in the input JSON).
 If `mode` is `write-files`, `lab-options` may be `None` (`null` in the input JSON).
-
-### Output class
-
-Ghostwriter output will be a class structured like this:
-
-```mermaid
----
-title: Ghostwriter Outputs
----
-
-classDiagram
-  Output : +bytes[] document
-  Output : +Path file-path
-  Output : +URL lab-url
-```
-If `mode` is `render`, `file-path` and `lab-url` may be `None` (`null` in the output JSON), and if `mode` is `write-files`, `lab-url` may be `None` (`null` in the output JSON).
 
 ### HTTP interaction
 
 Interaction with the ghostwriter API will be an HTTP POST with content-type `application/json`, where the POST body is a JSON document containing string representations of each field: the appropriate enum values for each of the enum fields, and strings representing the endpoint URL and disposition file path (if any).
 Fields that are not meaningful for a given mode may be (and should be) `null`.
+This POST will generally not be issued directly by the user, but will result as a consequence of some user query against a route mapped to a Ghostwriter parser.
 
-If the query succeeds, an HTTP 200 response will be received, also with content-type `application/json`.
-The response body should be JSON, whose fields are the string representations of the three fields of the output class: the `document` field will be the base-64 encoded version of the document bytes, the `path` field will be the string representation of the relative path within the user filestore to the destination path (or `null` if `mode` does not select an output path), and the `url` field will be the string representation of the URL to the running user notebook (or `null` if `mode` does not select a running notebook).
+If the query succeeds, an HTTP response will be received; if a document is being returned, the content-type should be `application/json` for a `Notebook` type query, and success should be indicated by a `200` HTTP status code.
+
+If the mode is `open-notebook`, a successful request will return an HTTP `302` temporary redirect, whose `Location` is the URL of the running user Lab open to the correct document.
 
 If the query fails, the HTTP error code should reflect the nature of the error: 401 or 403 for authentication/authorization errors (including the case when a file is generated, but the destination file already exists and the overwrite policy is `abort`), 404 if the input document for templating cannot be found, and 500 if templating fails or one of the necessary servers (the fileserver or the Lab) cannot be started, for instance.
 Addidtionally, the HTTP error text should attempt to give more details about the nature of the problem.
 
 Note that this does not imply that interaction with registered routes must be via a POST.
-Indeed, these will usually be GETs with path parameters and user information in the request headers; however, this GET will trigger a POST to the service API, or possibly its moral equivalent (that is, a class hook running within Ghostwriter might just call the same method, with the same input document, as would have been triggered by a POST to the API endpoint, but need not actually generate an internal HTTP POST).
+Indeed, these will usually be GETs with path parameters and user information in the request headers; however, this GET (or other request) will trigger a POST to the service API, or possibly its moral equivalent (that is, a class hook running within Ghostwriter might just call the same method, with the same input document, as would have been triggered by a POST to the API endpoint, but need not actually generate an internal HTTP POST).
 
 ### User interaction diagram
 
 This is a high-level diagram showing the conceptual flow if a user goes to a query url: in this case `/queries/dataset/query_id`, so, for example, something like `/queries/dp1/a432980e`.
+Note in particular that there may be multiple passes through parsers, each triggering a rewrite in Ghostwriter.
+Eventually, all parsers applicable to the request will have been processed, and the final output will be used to redirect the user's browser to a Lab open to a notebook with the requested query ID templated.
 
 ```mermaid
 ---
-title: Ghostwriter Ingress Rewriting
+title: External User Flow (Ingress Rewriting)
 ---
 
 graph TB
   user@{ shape: trap-t, label: "User" }
   subgraph Query
     direction LR
-    query@{ shape: rect, label: "/queries/dataset/query_id" }-->|userinfo|parser
+    query@{ shape: rect, label: "/queries/dataset/query_id" }-->|userinfo|parsers@{ shape: st-rect }
   end
   subgraph Ghostwriter
     direction LR
-    parser -->|inputs|ghostwriter
+    parsers-->|inputs|ghostwriter
   end
   subgraph Lab
     direction LR
     lab@{ shape: rect, label: "User Lab"}
   end
+  ghostwriter-->parsers
   ghostwriter-->lab
   user-->query
   lab-->user
@@ -362,5 +377,5 @@ Once this version of Ghostwriter is running successfully, a large portion of the
 The menu generation is on the frontend, and in each case must remain (and reporting the tutorial structure and recent query IDs will need to remain backend functionality).
 However, extension backend functionality implementing templating queries or writing local copies of the tutorials, and then generating URLs for redirection, can be delegated to Ghostwriter.
 
-The Ghostwriter extension itself will probably need to remain, because the landing page for the Lab is static once the Lab is launched.
+The Ghostwriter extension itself will need to remain, because the landing page for the Lab is static once the Lab is launched.
 The way around this is to set the landing page to the ghostwriter endpoint extension inside the user's Lab server, which in turn generates another redirect to send the user back to the Ghostwriter service, which then generates a redirect that reflects the user to the correct landing page.
