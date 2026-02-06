@@ -146,8 +146,8 @@ title: Parser Structure
 
 classDiagram
   Parser
-  Parser : +Path internal-route
-  Parser : +Path external-route
+  Parser : +str internal-route
+  Parser : +str external-route
   Parser: +handle_request()
   Parser: +rewrite()
   
@@ -161,7 +161,7 @@ classDiagram
 
 ### Typing
 
-The `Path` type is [`pathlib.Path`](https://docs.python.org/3/library/pathlib.html#pathlib.Path) from the Python standard library.
+Note that the routes, as URL components, are strings rather than `pathlib.Path` objects, even though they are exactly the `path` component of a URL.
 The `Request` type is [`httpx.Request`](https://www.python-httpx.org/api/#request).
 The `Response` type is [`httpx.Response`](https://www.python-httpx.org/api/#response).
 
@@ -435,9 +435,9 @@ classDiagram
   OverwritePolicy -- Disposition
 ```
 
-As above, the `Path` type is [`pathlib.Path`](https://docs.python.org/3/library/pathlib.html#pathlib.Path) from the Python standard library.
+The `Path` type here is [`pathlib.Path`](https://docs.python.org/3/library/pathlib.html#pathlib.Path) from the Python standard library.
 
-If `mode` is `render`, `disposition`, `overwrite-policy`, and `lab-options` may be `None` (`null` in the input JSON).
+If `mode` is `render`, `disposition`, and `lab-options` may be `None` (`null` in the input JSON).  If `disposition` is `None`, `overwrite-policy` will be omitted.
 If `mode` is `write-files`, `lab-options` may be `None` (`null` in the input JSON).
 
 ### Keene flow
