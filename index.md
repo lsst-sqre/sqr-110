@@ -167,7 +167,8 @@ The `Response` type is [`httpx.Response`](https://www.python-httpx.org/api/#resp
 
 The `handle_request()` method takes a `Request` and returns a `Response`.
 
-The typing for `rewrite()` is not yet fully determined, but should include a `Request`, a `dict[str,byte[]]` for parameters (again, values will be UTF-8 encoded), and a `next_parser` optional parameter, which is itself an instance of the parser class.
+The typing for `rewrite()` is not yet fully determined, but should include a `Request`, a `dict[str,str]` for parameters (values will be UTF-8 encoded), and a `next_parser` optional parameter, which is itself an instance of the parser class.
+If the parameter values must include arbitrary binary data (our suspicion is that they will not), we can build an escape hatch: for instance, if the parameter value string begins with `__base64:`, then the remainder of the string is to be decoded via base64 to a byte array.
 At the end of its `rewrite()` call, if `next_parser` is not `None`, it should call `next_parser.rewrite()` with inputs it determines.
 If there is no `next_parser` it should return a `Response` which will then potentially be modified by the calling `handle_request()` and returned to `handle_request()`'s caller.
 
@@ -252,7 +253,9 @@ For the `Notebook` document type, templating may be delegated to [Times Square](
 #### Parameters
 
 A document may require substitution parameters.
-These are supplied to `Keene` as a string-to-byte-array mapping; strings will be encoded in the values of this mapping as UTF-8.
+These are supplied to `Keene` as a string-to-string mapping; strings will be encoded in the values of this mapping as UTF-8.
+If at some point we actually need arbitrary binary data as a parameter value, we can define an escape hatch.
+For instance, if the value string begins with `__base64:`, then the remainder of the string is to be decoded as a base64-representation of a byte array.
 
 #### Disposition
 
@@ -272,10 +275,10 @@ The first mode of operation takes an endpoint and a set of substitution paramete
 
 #### Render outputs
 
-The `render` mode creates a byte sequence that is the rendered document.
+The `render` mode creates a UTF-8 string that is the rendered document.
 The document type will then guide what validation, if any, to perform on
 the byte sequence.
-For instance, the `Notebook` type will first be decoded into a string with the assumption that the bytes are UTF-8 encoded.
+For instance, the `Notebook` type will first be decoded into a UTF-8 string.
 That string should be able to be loaded as a JSON document, and that JSON document itself should have the structure of a [Jupyter Notebook](https://ipython.org/ipython-doc/3/notebook/nbformat.html).
 
 Note that this design makes no provision for streaming documents.
@@ -290,7 +293,7 @@ In the second mode of operation, `Keene` will take the document contents retriev
 
 #### Write-file inputs
 
-In addition to the inputs required for rendering a document, the disposition for the file myst be specified.
+In addition to the inputs required for rendering a document, the disposition for the file must be specified.
 
 The disposition will contain a file relative to the top of the user filestore, and a policy specifying what to do if that file already exists.
 
@@ -404,7 +407,7 @@ classDiagram
   }
   
   class Parameters{
-    +dict[str,byte[]] parameters
+    +dict[str,str] parameters
   }
 
   class Disposition{
@@ -545,7 +548,7 @@ It is the `Dixon` service's job to transform the output into an HTTP Redirect fo
 
 #### Failure
 
-If the query fails, the HTTP error code should reflect the nature of the error: `401` or `403` for authentication/authorization errors (including the case when a file is generated, but the destination file already exists and the overwrite policy is `abort`), `404` if the input document for templating cannot be found, and `500` if templating fails or one of the necessary servers (the fileserver or the Lab) cannot be started, for instance.
+If the query fails, the HTTP error code should reflect the nature of the error: `401` or `403` for authentication/authorization errors, `404` if the input document for templating cannot be found, `409` when a file is generated but the destination file already exists and the overwrite policy is `abort`, and `500` if templating fails or one of the necessary servers (the fileserver or the Lab) cannot be started, for instance.
 Additionally, the HTTP error text should attempt to give more details about the nature of the problem.
 
 #### Usage
